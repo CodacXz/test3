@@ -1,7 +1,3 @@
-I sincerely apologize for the confusion. It seems that some explanatory text was accidentally included in the code block. Let me provide you with the correct `app.py` file content, starting directly with the Python code:
-
-**File: c:\Users\DELL\Downloads\Test-main (2)\Test-main\app.py**
-```python
 import streamlit as st
 import pandas as pd
 import requests
