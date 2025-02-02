@@ -66,8 +66,12 @@ def find_companies_in_text(text, companies_df):
         company_name = str(row['Company_Name']).lower()
         company_code = str(row['Company_Code'])
         
+        # Remove apostrophes and check for partial matches
+        company_name_clean = company_name.replace("'s", "").replace("'", "")
+        text_clean = text.replace("'s", "").replace("'", "")
+        
         # Only add each company once
-        if (company_name in text or company_code in text) and company_code not in seen_companies:
+        if (company_name_clean in text_clean or company_code in text) and company_code not in seen_companies:
             seen_companies.add(company_code)
             mentioned_companies.append({
                 'name': row['Company_Name'],
@@ -238,7 +242,7 @@ def main():
                 st.write(f"Sentiment: {sentiment} (Confidence: {confidence:.2f}%)")
                 
                 # Find mentioned companies
-                mentioned_companies = find_companies_in_text(article['description'], companies_df)
+                mentioned_companies = find_companies_in_text(article['title'] + ' ' + article['description'], companies_df)
                 if mentioned_companies:
                     st.write("Mentioned Companies:")
                     for company in mentioned_companies:
@@ -249,7 +253,8 @@ def main():
                         with st.expander(f"Analysis for {company['name']} ({company['code']})"):
                             analyze_company(company, f"{idx}_{company_idx}")
                 else:
-                    st.write("No specific companies mentioned in this article.")
+                    st.write("No specific companies detected in this article.")
+                    st.write("Note: This could be due to limitations in the company detection algorithm.")
                 
                 st.write("Article Description:")
                 st.write(article['description'])
