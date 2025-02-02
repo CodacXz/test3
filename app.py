@@ -1,4 +1,3 @@
-```python
 import streamlit as st
 import pandas as pd
 import requests
@@ -267,4 +266,7 @@ def main():
         st.write(article['description'])
         
         if st.button(f"Read full article {idx}", key=f"read_article_{idx}"):
-            st.markdown(f"[Read full article]({article['
+            st.markdown(f"[Read full article]({article['url']})")
+
+        # Analyze mentioned companies
+        if
