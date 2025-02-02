@@ -154,42 +154,40 @@ def analyze_company(company, idx):
             st.warning(f"No data available for {company.get('name')} ({symbol})")
             return
         
-        # Create a new tab for each company
-        with st.expander(f"{company.get('name')} ({symbol})"):
-            # Display stock chart
-            fig = go.Figure()
-            fig.add_trace(go.Candlestick(x=df.index,
-                                         open=df['Open'],
-                                         high=df['High'],
-                                         low=df['Low'],
-                                         close=df['Close'],
-                                         name='Price'))
-            fig.add_trace(go.Scatter(x=df.index, y=df['BB_upper'], name='BB Upper'))
-            fig.add_trace(go.Scatter(x=df.index, y=df['BB_lower'], name='BB Lower'))
-            fig.update_layout(title=f"{company.get('name')} Stock Price", xaxis_title="Date", yaxis_title="Price")
-            st.plotly_chart(fig, use_container_width=True, key=f"price_chart_{idx}")
-            
-            # Display technical indicators
-            col1, col2 = st.columns(2)
-            with col1:
-                st.subheader("MACD")
-                fig_macd = go.Figure()
-                fig_macd.add_trace(go.Scatter(x=df.index, y=df['MACD'], name='MACD'))
-                fig_macd.add_trace(go.Scatter(x=df.index, y=df['MACD_Signal'], name='Signal'))
-                st.plotly_chart(fig_macd, use_container_width=True, key=f"macd_chart_{idx}")
-            
-            with col2:
-                st.subheader("RSI")
-                fig_rsi = go.Figure()
-                fig_rsi.add_trace(go.Scatter(x=df.index, y=df['RSI'], name='RSI'))
-                fig_rsi.add_hline(y=70, line_dash="dash", line_color="red")
-                fig_rsi.add_hline(y=30, line_dash="dash", line_color="green")
-                st.plotly_chart(fig_rsi, use_container_width=True, key=f"rsi_chart_{idx}")
-            
-            # Display summary statistics
-            st.subheader("Summary Statistics")
-            summary = df['Close'].describe()
-            st.write(summary)
+        # Display stock chart
+        fig = go.Figure()
+        fig.add_trace(go.Candlestick(x=df.index,
+                                     open=df['Open'],
+                                     high=df['High'],
+                                     low=df['Low'],
+                                     close=df['Close'],
+                                     name='Price'))
+        fig.add_trace(go.Scatter(x=df.index, y=df['BB_upper'], name='BB Upper'))
+        fig.add_trace(go.Scatter(x=df.index, y=df['BB_lower'], name='BB Lower'))
+        fig.update_layout(title=f"{company.get('name')} Stock Price", xaxis_title="Date", yaxis_title="Price")
+        st.plotly_chart(fig, use_container_width=True, key=f"price_chart_{idx}")
+        
+        # Display technical indicators
+        col1, col2 = st.columns(2)
+        with col1:
+            st.subheader("MACD")
+            fig_macd = go.Figure()
+            fig_macd.add_trace(go.Scatter(x=df.index, y=df['MACD'], name='MACD'))
+            fig_macd.add_trace(go.Scatter(x=df.index, y=df['MACD_Signal'], name='Signal'))
+            st.plotly_chart(fig_macd, use_container_width=True, key=f"macd_chart_{idx}")
+        
+        with col2:
+            st.subheader("RSI")
+            fig_rsi = go.Figure()
+            fig_rsi.add_trace(go.Scatter(x=df.index, y=df['RSI'], name='RSI'))
+            fig_rsi.add_hline(y=70, line_dash="dash", line_color="red")
+            fig_rsi.add_hline(y=30, line_dash="dash", line_color="green")
+            st.plotly_chart(fig_rsi, use_container_width=True, key=f"rsi_chart_{idx}")
+        
+        # Display summary statistics
+        st.subheader("Summary Statistics")
+        summary = df['Close'].describe()
+        st.write(summary)
     except Exception as e:
         st.error(f"Error analyzing {company.get('name')}: {str(e)}")
 
@@ -231,30 +229,32 @@ def main():
                 return
 
             for idx, article in enumerate(news_data, 1):
-                with st.expander(f"Article {idx}: {article['title']}"):
-                    st.write(f"Published: {article['published_at']}")
-                    st.write(f"Source: {article['source']}")
+                st.subheader(f"Article {idx}: {article['title']}")
+                st.write(f"Published: {article['published_at']}")
+                st.write(f"Source: {article['source']}")
+                
+                # Analyze sentiment
+                sentiment, confidence = analyze_sentiment(article['description'])
+                st.write(f"Sentiment: {sentiment} (Confidence: {confidence:.2f}%)")
+                
+                # Find mentioned companies
+                mentioned_companies = find_companies_in_text(article['description'], companies_df)
+                if mentioned_companies:
+                    st.write("Mentioned Companies:")
+                    for company in mentioned_companies:
+                        st.write(f"- {company['name']} ({company['code']})")
                     
-                    # Analyze sentiment
-                    sentiment, confidence = analyze_sentiment(article['description'])
-                    st.write(f"Sentiment: {sentiment} (Confidence: {confidence:.2f}%)")
-                    
-                    # Find mentioned companies
-                    mentioned_companies = find_companies_in_text(article['description'], companies_df)
-                    if mentioned_companies:
-                        st.write("Mentioned Companies:")
-                        for company in mentioned_companies:
-                            st.write(f"- {company['name']} ({company['code']})")
-                        
-                        st.write("Company Analysis:")
-                        for company_idx, company in enumerate(mentioned_companies):
+                    st.write("Company Analysis:")
+                    for company_idx, company in enumerate(mentioned_companies):
+                        with st.expander(f"Analysis for {company['name']} ({company['code']})"):
                             analyze_company(company, f"{idx}_{company_idx}")
-                    else:
-                        st.write("No specific companies mentioned in this article.")
-                    
-                    st.write("Article Description:")
-                    st.write(article['description'])
-                    st.write(f"[Read full article]({article['url']})")
+                else:
+                    st.write("No specific companies mentioned in this article.")
+                
+                st.write("Article Description:")
+                st.write(article['description'])
+                st.write(f"[Read full article]({article['url']})")
+                st.markdown("---")  # Add a horizontal line between articles
 
 if __name__ == "__main__":
     main()
