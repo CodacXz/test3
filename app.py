@@ -12,12 +12,27 @@ from ta.volatility import BollingerBands
 # API Configuration
 NEWS_API_URL = "https://api.marketaux.com/v1/news/all"
 
-# Get API key from secrets with fallback
+# Get API key from secrets
 try:
     API_TOKEN = st.secrets["general"]["MARKETAUX_API_KEY"]
 except Exception as e:
     st.error("Error loading API key. Please check your secrets.toml file.")
     st.stop()
+
+def test_api_key():
+    try:
+        response = requests.get(f"{NEWS_API_URL}?api_token={API_TOKEN}&countries=sa&limit=1")
+        response.raise_for_status()
+        st.success("API key is valid and working.")
+    except requests.exceptions.RequestException as e:
+        st.error("Error validating API key. Please check your API key and try again.")
+        with st.expander("See error details"):
+            st.write(f"Error type: {type(e).__name__}")
+            st.write(f"Error message: {str(e)}")
+            if hasattr(e, 'response'):
+                st.write(f"Response status code: {e.response.status_code}")
+                st.write(f"Response content: {e.response.text}")
+        st.stop()
 
 @st.cache_data
 def load_company_data(uploaded_file=None):
@@ -129,359 +144,114 @@ def analyze_company(company, idx):
     """Analyze a single company"""
     try:
         symbol = company.get('symbol')
-        df, error = get_stock_data(f"{symbol}.SR")
+        df, error = get_stock_data(symbol)
         
         if error:
-            st.error(error)
+            st.warning(error)
             return
-            
-        if df is not None and not df.empty:
-            latest_price = df['Close'][-1]
-            price_change = ((latest_price - df['Close'][-2])/df['Close'][-2]*100)
-            
-            # Metrics
-            cols = st.columns(3)
-            with cols[0]:
-                st.metric(
-                    "Current Price",
-                    f"{latest_price:.2f} SAR",
-                    f"{price_change:.2f}%",
-                    key=f"price_{company['symbol']}_{idx}"
-                )
-            with cols[1]:
-                st.metric(
-                    "Day High",
-                    f"{df['High'][-1]:.2f} SAR",
-                    key=f"high_{company['symbol']}_{idx}"
-                )
-            with cols[2]:
-                st.metric(
-                    "Day Low",
-                    f"{df['Low'][-1]:.2f} SAR",
-                    key=f"low_{company['symbol']}_{idx}"
-                )
-            
-            # Technical Analysis
-            signals = []
-            
-            # MACD
-            macd_signal = "BULLISH" if df['MACD'][-1] > df['MACD_Signal'][-1] else "BEARISH"
-            signals.append({
-                'Indicator': 'MACD',
-                'Signal': macd_signal,
-                'Reason': f"MACD line {'above' if macd_signal == 'BULLISH' else 'below'} signal line"
-            })
-            
-            # RSI
-            rsi = df['RSI'][-1]
-            if rsi > 70:
-                signals.append({
-                    'Indicator': 'RSI',
-                    'Signal': 'BEARISH',
-                    'Reason': 'Overbought condition (RSI > 70)'
-                })
-            elif rsi < 30:
-                signals.append({
-                    'Indicator': 'RSI',
-                    'Signal': 'BULLISH',
-                    'Reason': 'Oversold condition (RSI < 30)'
-                })
-            else:
-                signals.append({
-                    'Indicator': 'RSI',
-                    'Signal': 'NEUTRAL',
-                    'Reason': 'RSI in neutral zone'
-                })
-            
-            # Bollinger Bands
-            if df['Close'][-1] > df['BB_upper'][-1]:
-                signals.append({
-                    'Indicator': 'Bollinger Bands',
-                    'Signal': 'BEARISH',
-                    'Reason': 'Price above upper band'
-                })
-            elif df['Close'][-1] < df['BB_lower'][-1]:
-                signals.append({
-                    'Indicator': 'Bollinger Bands',
-                    'Signal': 'BULLISH',
-                    'Reason': 'Price below lower band'
-                })
-            else:
-                signals.append({
-                    'Indicator': 'Bollinger Bands',
-                    'Signal': 'NEUTRAL',
-                    'Reason': 'Price within bands'
-                })
-            
-            # Display signals
-            st.write("### Technical Analysis")
-            signals_df = pd.DataFrame(signals)
-            st.dataframe(signals_df, key=f"signals_{company['symbol']}_{idx}")
-            
-            # Stock chart
+        
+        if df is None or df.empty:
+            st.warning(f"No data available for {company.get('name')} ({symbol})")
+            return
+        
+        # Create a new tab for each company
+        with st.expander(f"{company.get('name')} ({symbol})"):
+            # Display stock chart
             fig = go.Figure()
-            fig.add_trace(go.Candlestick(
-                x=df.index,
-                open=df['Open'],
-                high=df['High'],
-                low=df['Low'],
-                close=df['Close'],
-                name='Price'
-            ))
+            fig.add_trace(go.Candlestick(x=df.index,
+                                         open=df['Open'],
+                                         high=df['High'],
+                                         low=df['Low'],
+                                         close=df['Close'],
+                                         name='Price'))
+            fig.add_trace(go.Scatter(x=df.index, y=df['BB_upper'], name='BB Upper'))
+            fig.add_trace(go.Scatter(x=df.index, y=df['BB_lower'], name='BB Lower'))
+            fig.update_layout(title=f"{company.get('name')} Stock Price", xaxis_title="Date", yaxis_title="Price")
+            st.plotly_chart(fig, use_container_width=True)
             
-            fig.update_layout(
-                title=None,
-                yaxis_title='Price (SAR)',
-                xaxis_title='Date',
-                template='plotly_dark',
-                height=400,
-                margin=dict(t=0)
-            )
+            # Display technical indicators
+            col1, col2 = st.columns(2)
+            with col1:
+                st.subheader("MACD")
+                fig_macd = go.Figure()
+                fig_macd.add_trace(go.Scatter(x=df.index, y=df['MACD'], name='MACD'))
+                fig_macd.add_trace(go.Scatter(x=df.index, y=df['MACD_Signal'], name='Signal'))
+                st.plotly_chart(fig_macd, use_container_width=True)
             
-            st.plotly_chart(fig, key=f"chart_{company['symbol']}_{idx}", use_container_width=True)
+            with col2:
+                st.subheader("RSI")
+                fig_rsi = go.Figure()
+                fig_rsi.add_trace(go.Scatter(x=df.index, y=df['RSI'], name='RSI'))
+                fig_rsi.add_hline(y=70, line_dash="dash", line_color="red")
+                fig_rsi.add_hline(y=30, line_dash="dash", line_color="green")
+                st.plotly_chart(fig_rsi, use_container_width=True)
             
+            # Display summary statistics
+            st.subheader("Summary Statistics")
+            summary = df['Close'].describe()
+            st.write(summary)
     except Exception as e:
         st.error(f"Error analyzing {company.get('name')}: {str(e)}")
 
-def check_api_credits():
-    """Check remaining API credits"""
-    try:
-        params = {
-            "api_token": API_TOKEN
-        }
-        response = requests.get("https://api.marketaux.com/v1/usage", params=params)
-        response.raise_for_status()
-        data = response.json()
-        return data.get("credits", {})
-    except Exception as e:
-        st.error(f"Error checking API credits: {str(e)}")
-        return None
-
 def main():
+    st.set_page_config(page_title="Saudi Stock Market News", page_icon="📈", layout="wide")
     st.title("Saudi Stock Market News")
     st.write("Real-time news analysis for Saudi stock market")
-    
-    # Initialize session state
-    if 'api_calls_today' not in st.session_state:
-        st.session_state.api_calls_today = 0
-    
+
+    # Test API key
+    test_api_key()
+
     # Sidebar
-    with st.sidebar:
-        st.header("Settings")
-        
-        # API Credits
-        credits = check_api_credits()
-        if credits:
-            st.write("### API Credits")
-            st.write(f"Used: {credits.get('used', 'N/A')}")
-            st.write(f"Remaining: {credits.get('remaining', 'N/A')}")
-            st.write(f"Limit: {credits.get('limit', 'N/A')}")
-        
-        # Reset button
-        if st.button("🔄 Reset Session"):
-            for key in list(st.session_state.keys()):
-                if key.startswith('skip_') or key == 'api_calls_today':
-                    del st.session_state[key]
-            st.experimental_rerun()
-        
-        # Company data upload
-        uploaded_file = st.file_uploader(
-            "Upload companies file (optional)",
-            type=['csv'],
-            key="file_uploader"
-        )
-        
-        companies_df = load_company_data(uploaded_file)
-        if companies_df.empty:
-            st.error("Failed to load company data")
-            return
-        
-        # Date range
-        days_ago = st.slider(
-            "Show news published after:",
-            min_value=1,
-            max_value=30,
-            value=1,
-            key="days_slider"
-        )
-        
-        # Number of articles
-        article_limit = st.number_input(
-            "Number of articles",
-            min_value=1,
-            max_value=3,
-            value=3,
-            key="article_limit"
-        )
+    st.sidebar.title("Settings")
     
+    # File uploader for company data
+    uploaded_file = st.sidebar.file_uploader("Upload companies file (optional)", type="csv")
+    
+    # Date input for news
+    days_ago = st.sidebar.slider("Show news published after:", 1, 30, 7)
     published_after = (datetime.now() - timedelta(days=days_ago)).strftime("%Y-%m-%d")
     
-    # Fetch news
+    # Number of articles to fetch
+    article_limit = st.sidebar.number_input("Number of articles", min_value=1, max_value=100, value=3)
+
+    # Load company data
+    companies_df = load_company_data(uploaded_file)
+
+    if companies_df.empty:
+        st.error("Failed to load company data. Please check your internet connection or upload a valid CSV file.")
+        return
+
     if st.button("Fetch News", use_container_width=True):
-        news_data = fetch_news(published_after, limit=article_limit)
-        
-        if not news_data:
-            st.error("No news articles found")
-            return
-        
-        st.write(f"Found {len(news_data)} articles")
-        
-        # Keep track of analyzed companies to avoid duplicates
-        analyzed_companies = set()
-        
-        # Process each article
-        for article_idx, article in enumerate(news_data):
-            with st.container():
-                # Article header
-                title = article.get('title', 'No title')
-                description = article.get('description', 'No description')
-                url = article.get('url', '#')
-                source = article.get('source', 'Unknown')
-                published_at = article.get('published_at', '')
+        with st.spinner('Fetching and analyzing news...'):
+            news_data = fetch_news(published_after, limit=article_limit)
+
+            if not news_data:
+                st.warning("No news articles found for the selected time period.")
+                st.info("Try increasing the number of days in the sidebar to find more articles.")
+                return
+
+            for idx, article in enumerate(news_data, 1):
+                st.subheader(f"Article {idx}: {article['title']}")
+                st.write(f"Published: {article['published_at']}")
+                st.write(f"Source: {article['source']}")
                 
-                st.header(title, key=f"header_{article_idx}")
-                st.write(f"Source: {source} | Published: {published_at[:16]}", key=f"source_{article_idx}")
-                st.write(description, key=f"description_{article_idx}")
+                # Analyze sentiment
+                sentiment, confidence = analyze_sentiment(article['description'])
+                st.write(f"Sentiment: {sentiment} (Confidence: {confidence:.2f}%)")
                 
-                # Sentiment Analysis
-                text = f"{title} {description}"
-                sentiment, confidence = analyze_sentiment(text)
+                # Find mentioned companies
+                mentioned_companies = find_companies_in_text(article['description'], companies_df)
+                if mentioned_companies:
+                    st.write("Mentioned Companies:")
+                    for company in mentioned_companies:
+                        st.write(f"- {company['name']} ({company['code']})")
+                        analyze_company(company, idx)
+                else:
+                    st.write("No specific companies mentioned.")
                 
-                st.write("### Sentiment Analysis", key=f"sentiment_analysis_{article_idx}")
-                st.write(f"**Sentiment:** {sentiment}", key=f"sentiment_{article_idx}")
-                st.write(f"**Confidence:** {confidence:.2f}%", key=f"confidence_{article_idx}")
-                
-                # Company Analysis
-                entities = article.get('entities', [])
-                if entities:
-                    unique_companies = []
-                    for entity in entities:
-                        symbol = entity.get('symbol')
-                        if symbol and symbol not in analyzed_companies:
-                            analyzed_companies.add(symbol)
-                            unique_companies.append(entity)
-                    
-                    if unique_companies:
-                        st.write("### Companies Mentioned", key=f"companies_mentioned_{article_idx}")
-                        for company_idx, company in enumerate(unique_companies):
-                            st.write(f"**{company.get('name')} ({company.get('symbol')})**", key=f"company_{article_idx}_{company_idx}")
-                            
-                            try:
-                                symbol = company.get('symbol')
-                                df, error = get_stock_data(f"{symbol}.SR")
-                                
-                                if error:
-                                    st.error(error, key=f"error_{article_idx}_{company_idx}")
-                                    continue
-                                    
-                                if df is not None and not df.empty:
-                                    latest_price = df['Close'][-1]
-                                    price_change = ((latest_price - df['Close'][-2])/df['Close'][-2]*100)
-                                    
-                                    cols = st.columns(3)
-                                    with cols[0]:
-                                        st.metric(
-                                            "Current Price",
-                                            f"{latest_price:.2f} SAR",
-                                            f"{price_change:.2f}%",
-                                            key=f"current_price_{article_idx}_{company_idx}"
-                                        )
-                                    with cols[1]:
-                                        st.metric(
-                                            "Day High",
-                                            f"{df['High'][-1]:.2f} SAR",
-                                            key=f"day_high_{article_idx}_{company_idx}"
-                                        )
-                                    with cols[2]:
-                                        st.metric(
-                                            "Day Low",
-                                            f"{df['Low'][-1]:.2f} SAR",
-                                            key=f"day_low_{article_idx}_{company_idx}"
-                                        )
-                                    
-                                    # Technical Analysis
-                                    signals = []
-                                    
-                                    # MACD
-                                    macd_signal = "BULLISH" if df['MACD'][-1] > df['MACD_Signal'][-1] else "BEARISH"
-                                    signals.append({
-                                        'Indicator': 'MACD',
-                                        'Signal': macd_signal,
-                                        'Reason': f"MACD line {'above' if macd_signal == 'BULLISH' else 'below'} signal line"
-                                    })
-                                    
-                                    # RSI
-                                    rsi = df['RSI'][-1]
-                                    if rsi > 70:
-                                        signals.append({
-                                            'Indicator': 'RSI',
-                                            'Signal': 'BEARISH',
-                                            'Reason': 'Overbought condition (RSI > 70)'
-                                        })
-                                    elif rsi < 30:
-                                        signals.append({
-                                            'Indicator': 'RSI',
-                                            'Signal': 'BULLISH',
-                                            'Reason': 'Oversold condition (RSI < 30)'
-                                        })
-                                    else:
-                                        signals.append({
-                                            'Indicator': 'RSI',
-                                            'Signal': 'NEUTRAL',
-                                            'Reason': 'RSI in neutral zone'
-                                        })
-                                    
-                                    # Bollinger Bands
-                                    if df['Close'][-1] > df['BB_upper'][-1]:
-                                        signals.append({
-                                            'Indicator': 'Bollinger Bands',
-                                            'Signal': 'BEARISH',
-                                            'Reason': 'Price above upper band'
-                                        })
-                                    elif df['Close'][-1] < df['BB_lower'][-1]:
-                                        signals.append({
-                                            'Indicator': 'Bollinger Bands',
-                                            'Signal': 'BULLISH',
-                                            'Reason': 'Price below lower band'
-                                        })
-                                    else:
-                                        signals.append({
-                                            'Indicator': 'Bollinger Bands',
-                                            'Signal': 'NEUTRAL',
-                                            'Reason': 'Price within bands'
-                                        })
-                                    
-                                    st.write("### Technical Analysis", key=f"technical_analysis_{article_idx}_{company_idx}")
-                                    signals_df = pd.DataFrame(signals)
-                                    st.dataframe(signals_df, key=f"signals_df_{article_idx}_{company_idx}")
-                                    
-                                    # Stock chart
-                                    fig = go.Figure()
-                                    fig.add_trace(go.Candlestick(
-                                        x=df.index,
-                                        open=df['Open'],
-                                        high=df['High'],
-                                        low=df['Low'],
-                                        close=df['Close'],
-                                        name='Price'
-                                    ))
-                                    
-                                    fig.update_layout(
-                                        title=None,
-                                        yaxis_title='Price (SAR)',
-                                        xaxis_title='Date',
-                                        template='plotly_dark',
-                                        height=400,
-                                        margin=dict(t=0)
-                                    )
-                                    
-                                    st.plotly_chart(fig, use_container_width=True, key=f"chart_{article_idx}_{company_idx}")
-                                    
-                            except Exception as e:
-                                st.error(f"Error analyzing {company.get('name')}: {str(e)}", key=f"exception_{article_idx}_{company_idx}")
-                
-                st.markdown(f"[Read full article]({url})", key=f"read_full_article_{article_idx}")
-                st.markdown("---", key=f"divider_{article_idx}")
+                st.write(article['description'])
+                st.write(f"[Read full article]({article['url']})")
+                st.markdown("---")
 
 if __name__ == "__main__":
     main()
