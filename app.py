@@ -10,6 +10,9 @@ from ta.momentum import RSIIndicator
 from ta.volatility import BollingerBands
 import re
 
+# Page configuration
+st.set_page_config(page_title="Saudi Market News Analyzer", layout="wide")
+
 # API Configuration
 NEWS_API_URL = "https://api.marketaux.com/v1/news/all"
 
@@ -57,14 +60,14 @@ def load_company_data(uploaded_file=None):
 def generate_name_variations(name):
     """Generate common variations of company names"""
     variations = [name]
-    variations.append(name.replace(" ", ""))  # Remove spaces
-    variations.append(name.replace("&", "and"))  # Replace & with and
-    variations.append(name.replace("and", "&"))  # Replace and with &
+    variations.append(name.replace(" ", ""))
+    variations.append(name.replace("&", "and"))
+    variations.append(name.replace("and", "&"))
     if "company" in name.lower():
-        variations.append(name.lower().replace("company", "co"))  # Replace Company with Co
+        variations.append(name.lower().replace("company", "co"))
     if "corporation" in name.lower():
-        variations.append(name.lower().replace("corporation", "corp"))  # Replace Corporation with Corp
-    return list(set(variations))  # Remove duplicates
+        variations.append(name.lower().replace("corporation", "corp"))
+    return list(set(variations))
 
 def find_companies_in_text(text, companies_df):
     """Find unique companies mentioned in the text"""
@@ -72,7 +75,7 @@ def find_companies_in_text(text, companies_df):
         return []
     
     text = text.lower()
-    seen_companies = set()  # Track unique companies
+    seen_companies = set()
     mentioned_companies = []
     
     for _, row in companies_df.iterrows():
@@ -91,7 +94,7 @@ def find_companies_in_text(text, companies_df):
                     'code': company_code,
                     'symbol': f"{company_code}.SA"
                 })
-                break  # Stop checking variations once we find a match
+                break
     
     return mentioned_companies
 
@@ -99,171 +102,181 @@ def analyze_sentiment(text):
     """Analyze sentiment of text"""
     analyzer = SentimentIntensityAnalyzer()
     scores = analyzer.polarity_scores(text)
-    compound = scores['compound']
-    confidence = (abs(compound) * 100)  # Convert to percentage
     
-    if compound >= 0.05:
-        sentiment = "🟢 Positive"
-    elif compound <= -0.05:
-        sentiment = "🔴 Negative"
+    compound_score = scores['compound']
+    if compound_score >= 0.05:
+        sentiment = 'Positive'
+    elif compound_score <= -0.05:
+        sentiment = 'Negative'
     else:
-        sentiment = "⚪ Neutral"
+        sentiment = 'Neutral'
     
-    return sentiment, confidence
-
-def fetch_news(published_after, limit=3):
-    """Fetch news articles"""
-    params = {
-        "api_token": API_TOKEN,
-        "countries": "sa",
-        "filter_entities": "true",
-        "limit": limit,
-        "published_after": published_after,
-        "language": "en",
-        "must_have_entities": "true",  # Only get articles with entities
-        "group_similar": "true"  # Group similar articles to save API calls
+    return {
+        'compound': compound_score,
+        'positive': scores['pos'],
+        'negative': scores['neg'],
+        'neutral': scores['neu'],
+        'sentiment': sentiment
     }
-    try:
-        response = requests.get(NEWS_API_URL, params=params, timeout=10)
-        response.raise_for_status()
-        data = response.json()
-        return data.get("data", [])
-    except Exception as e:
-        st.error(f"Error fetching news: {str(e)}")
-        return []
 
-@st.cache_data(ttl=3600)  # Cache stock data for 1 hour
-def get_stock_data(symbol, period='1mo'):
-    """Fetch stock data and calculate technical indicators"""
+@st.cache_data(ttl=3600)
+def fetch_news(days=7, limit=100):
+    """Fetch news articles from the API"""
+    end_date = datetime.now()
+    start_date = end_date - timedelta(days=days)
+    
+    params = {
+        'api_token': API_TOKEN,
+        'countries': 'sa',
+        'limit': limit,
+        'published_after': start_date.strftime('%Y-%m-%d'),
+        'published_before': end_date.strftime('%Y-%m-%d')
+    }
+    
     try:
-        # For Saudi stocks, use the format XXXX.SA
-        if symbol.endswith('.SR'):
-            symbol = symbol[:-3] + '.SA'
-        
+        response = requests.get(NEWS_API_URL, params=params)
+        response.raise_for_status()
+        return response.json()
+    except requests.exceptions.RequestException as e:
+        st.error(f"Error fetching news: {str(e)}")
+        return None
+
+def fetch_stock_data(symbol, period='1y'):
+    """Fetch stock data using yfinance"""
+    try:
         stock = yf.Ticker(symbol)
         df = stock.history(period=period)
-        
-        if df.empty:
-            return None, f"No stock data available for {symbol}"
-        
-        # Calculate indicators
-        macd = MACD(df['Close'])
-        df['MACD'] = macd.macd()
-        df['MACD_Signal'] = macd.macd_signal()
-        
-        rsi = RSIIndicator(df['Close'])
-        df['RSI'] = rsi.rsi()
-        
-        bb = BollingerBands(df['Close'])
-        df['BB_upper'] = bb.bollinger_hband()
-        df['BB_lower'] = bb.bollinger_lband()
-        
-        return df, None
+        return df
     except Exception as e:
-        return None, f"Error fetching data for {symbol}: {str(e)}"
+        st.error(f"Error fetching stock data for {symbol}: {str(e)}")
+        return pd.DataFrame()
 
-def analyze_company(company, idx):
-    """Analyze a single company"""
-    try:
-        symbol = company.get('symbol')
-        df, error = get_stock_data(symbol)
-        
-        if error:
-            st.warning(error)
-            return
-        
-        if df is None or df.empty:
-            st.warning(f"No data available for {company.get('name')} ({symbol})")
-            return
-        
-        # Display stock chart
-        fig = go.Figure()
-        fig.add_trace(go.Candlestick(x=df.index,
-                                     open=df['Open'],
-                                     high=df['High'],
-                                     low=df['Low'],
-                                     close=df['Close'],
-                                     name='Price'))
-        fig.add_trace(go.Scatter(x=df.index, y=df['BB_upper'], name='BB Upper'))
-        fig.add_trace(go.Scatter(x=df.index, y=df['BB_lower'], name='BB Lower'))
-        fig.update_layout(title=f"{company.get('name')} Stock Price", xaxis_title="Date", yaxis_title="Price")
-        st.plotly_chart(fig, use_container_width=True, key=f"price_chart_{idx}")
-        
-        # Display technical indicators
-        col1, col2 = st.columns(2)
-        with col1:
-            st.subheader("MACD")
-            fig_macd = go.Figure()
-            fig_macd.add_trace(go.Scatter(x=df.index, y=df['MACD'], name='MACD'))
-            fig_macd.add_trace(go.Scatter(x=df.index, y=df['MACD_Signal'], name='Signal'))
-            st.plotly_chart(fig_macd, use_container_width=True, key=f"macd_chart_{idx}")
-        
-        with col2:
-            st.subheader("RSI")
-            fig_rsi = go.Figure()
-            fig_rsi.add_trace(go.Scatter(x=df.index, y=df['RSI'], name='RSI'))
-            fig_rsi.add_hline(y=70, line_dash="dash", line_color="red")
-            fig_rsi.add_hline(y=30, line_dash="dash", line_color="green")
-            st.plotly_chart(fig_rsi, use_container_width=True, key=f"rsi_chart_{idx}")
-        
-        # Display summary statistics
-        st.subheader("Summary Statistics")
-        summary = df['Close'].describe()
-        st.write(summary)
-    except Exception as e:
-        st.error(f"Error analyzing {company.get('name')}: {str(e)}")
+def calculate_technical_indicators(df):
+    """Calculate technical indicators for the stock data"""
+    if df.empty:
+        return df
+    
+    # MACD
+    macd = MACD(close=df['Close'])
+    df['MACD'] = macd.macd()
+    df['MACD_Signal'] = macd.macd_signal()
+    
+    # RSI
+    rsi = RSIIndicator(close=df['Close'])
+    df['RSI'] = rsi.rsi()
+    
+    # Bollinger Bands
+    bb = BollingerBands(close=df['Close'])
+    df['BB_High'] = bb.bollinger_hband()
+    df['BB_Low'] = bb.bollinger_lband()
+    df['BB_Mid'] = bb.bollinger_mavg()
+    
+    return df
+
+def plot_stock_data(df, company_name):
+    """Create interactive stock chart with technical indicators"""
+    fig = go.Figure()
+    
+    # Candlestick chart
+    fig.add_trace(go.Candlestick(
+        x=df.index,
+        open=df['Open'],
+        high=df['High'],
+        low=df['Low'],
+        close=df['Close'],
+        name='OHLC'
+    ))
+    
+    # Bollinger Bands
+    fig.add_trace(go.Scatter(x=df.index, y=df['BB_High'], name='BB Upper', line=dict(color='gray', dash='dash')))
+    fig.add_trace(go.Scatter(x=df.index, y=df['BB_Low'], name='BB Lower', line=dict(color='gray', dash='dash')))
+    fig.add_trace(go.Scatter(x=df.index, y=df['BB_Mid'], name='BB Middle', line=dict(color='gray')))
+    
+    fig.update_layout(
+        title=f'{company_name} Stock Price and Bollinger Bands',
+        yaxis_title='Price',
+        xaxis_title='Date',
+        template='plotly_dark'
+    )
+    
+    return fig
 
 def main():
-    st.set_page_config(page_title="Saudi Stock Market News", page_icon="📈", layout="wide")
-    st.title("Saudi Stock Market News")
-    st.write("Real-time news analysis for Saudi stock market")
-
-    # Test API key
-    test_api_key()
-
-    # Sidebar
-    st.sidebar.title("Settings")
+    st.title("Saudi Market News Analyzer")
     
-    # File uploader for company data
-    uploaded_file = st.sidebar.file_uploader("Upload companies file (optional)", type="csv")
-    
-    # Date input for news
-    days_ago = st.sidebar.slider("Show news published after:", 1, 30, 7)
-    published_after = (datetime.now() - timedelta(days=days_ago)).strftime("%Y-%m-%d")
-    
-    # Number of articles to fetch
-    article_limit = st.sidebar.number_input("Number of articles", min_value=1, max_value=100, value=3)
-
     # Load company data
-    companies_df = load_company_data(uploaded_file)
-
+    companies_df = load_company_data()
     if companies_df.empty:
-        st.error("Failed to load company data. Please check your CSV file or internet connection.")
+        st.error("Failed to load company data.")
         return
-
-    # Fetch and display news
-    news_articles = fetch_news(published_after, article_limit)
-
-    for idx, article in enumerate(news_articles, 1):
-        st.subheader(f"Article {idx}: {article['title']}")
-        st.write(f"Published: {article['published_at']}")
-        st.write(f"Source: {article['source']}")
-
-        # Analyze sentiment
-        sentiment, confidence = analyze_sentiment(article['title'] + " " + article['description'])
-        st.write(f"Sentiment: {sentiment} (Confidence: {confidence:.2f}%)")
-
-        # Find mentioned companies
-        mentioned_companies = find_companies_in_text(article['title'] + " " + article['description'], companies_df)
-        if mentioned_companies:
-            st.write("Mentioned Companies:")
-            for company in mentioned_companies:
-                st.write(f"{company['name']} ({company['code']})")
-        else:
-            st.write("No companies mentioned.")
-
-        st.write("Article Description:")
-        st.write(article['description'])
+    
+    # Sidebar controls
+    st.sidebar.header("Settings")
+    days_back = st.sidebar.slider("Days of news to analyze", 1, 30, 7)
+    news_limit = st.sidebar.slider("Number of news articles", 10, 100, 50)
+    
+    # Fetch news
+    with st.spinner("Fetching news articles..."):
+        news_data = fetch_news(days=days_back, limit=news_limit)
+    
+    if not news_data or 'data' not in news_data:
+        st.error("No news data available.")
+        return
+    
+    # Process news articles
+    all_articles = []
+    for article in news_data['data']:
+        companies = find_companies_in_text(article['title'] + ' ' + article['description'], companies_df)
+        if companies:
+            sentiment = analyze_sentiment(article['title'] + ' ' + article['description'])
+            for company in companies:
+                all_articles.append({
+                    'date': article['published_at'],
+                    'title': article['title'],
+                    'description': article['description'],
+                    'company_name': company['name'],
+                    'company_code': company['code'],
+                    'symbol': company['symbol'],
+                    'sentiment': sentiment['sentiment'],
+                    'compound_score': sentiment['compound']
+                })
+    
+    # Display results
+    if all_articles:
+        df_articles = pd.DataFrame(all_articles)
         
-        if st.button(f"Read full article {idx}", key=f"read_article_{idx}"):
-            st.markdown(
+        # Group by company and show sentiment statistics
+        company_stats = df_articles.groupby('company_name').agg({
+            'compound_score': ['mean', 'count'],
+            'sentiment': lambda x: x.value_counts().index[0]
+        }).round(3)
+        
+        st.header("Company Sentiment Analysis")
+        st.dataframe(company_stats)
+        
+        # Show detailed news for selected company
+        selected_company = st.selectbox(
+            "Select a company to view detailed news and analysis",
+            options=df_articles['company_name'].unique()
+        )
+        
+        company_news = df_articles[df_articles['company_name'] == selected_company]
+        symbol = company_news.iloc[0]['symbol']
+        
+        # Fetch and display stock data
+        with st.spinner("Fetching stock data..."):
+            stock_data = fetch_stock_data(symbol)
+            if not stock_data.empty:
+                stock_data = calculate_technical_indicators(stock_data)
+                st.plotly_chart(plot_stock_data(stock_data, selected_company))
+        
+        # Display news articles
+        st.subheader(f"Recent News for {selected_company}")
+        for _, article in company_news.iterrows():
+            with st.expander(f"{article['date']} - {article['title']} ({article['sentiment']})"):
+                st.write(article['description'])
+    else:
+        st.info("No company-related news found in the specified time period.")
+
+if __name__ == "__main__":
+    main()
