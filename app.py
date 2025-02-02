@@ -1,4 +1,4 @@
-Certainly! I'll provide you with the full, updated code for your `app.py` file, incorporating all the improvements we've discussed. Here's the complete code:
+I apologize for the confusion. It seems that the previous response was mistakenly included in the code block. Let me provide you with the correct, full code for your `app.py` file without any extra text:
 
 **File: c:\Users\DELL\Downloads\Test-main (2)\Test-main\app.py**
 ```python
@@ -269,4 +269,4 @@ def main():
         st.write("Article Description:")
         st.write(article['description'])
         
-        if st.button(f"Read full article {idx}", key=f"read_full_{idx}"):
+        if st.button(f"Read full article {idx}", key=
