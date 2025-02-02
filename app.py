@@ -1,7 +1,3 @@
-I apologize for the confusion. I'll provide you with the full, corrected code for your `app.py` file. Here it is:
-
-**File: /mount/src/test3/app.py**
-```python
 import streamlit as st
 import pandas as pd
 import requests
