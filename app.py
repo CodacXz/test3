@@ -1,3 +1,7 @@
+Certainly! I'll provide you with the full, updated code for your `app.py` file, incorporating all the improvements we've discussed. Here's the complete code:
+
+**File: c:\Users\DELL\Downloads\Test-main (2)\Test-main\app.py**
+```python
 import streamlit as st
 import pandas as pd
 import requests
@@ -8,6 +12,7 @@ import plotly.graph_objects as go
 from ta.trend import MACD
 from ta.momentum import RSIIndicator
 from ta.volatility import BollingerBands
+import re
 
 # API Configuration
 NEWS_API_URL = "https://api.marketaux.com/v1/news/all"
@@ -53,6 +58,18 @@ def load_company_data(uploaded_file=None):
         st.error(f"Error loading company data: {str(e)}")
         return pd.DataFrame()
 
+def generate_name_variations(name):
+    """Generate common variations of company names"""
+    variations = [name]
+    variations.append(name.replace(" ", ""))  # Remove spaces
+    variations.append(name.replace("&", "and"))  # Replace & with and
+    variations.append(name.replace("and", "&"))  # Replace and with &
+    if "company" in name.lower():
+        variations.append(name.lower().replace("company", "co"))  # Replace Company with Co
+    if "corporation" in name.lower():
+        variations.append(name.lower().replace("corporation", "corp"))  # Replace Corporation with Corp
+    return list(set(variations))  # Remove duplicates
+
 def find_companies_in_text(text, companies_df):
     """Find unique companies mentioned in the text"""
     if not text or companies_df.empty:
@@ -63,21 +80,22 @@ def find_companies_in_text(text, companies_df):
     mentioned_companies = []
     
     for _, row in companies_df.iterrows():
-        company_name = str(row['Company_Name']).lower()
+        company_name = str(row['Company_Name'])
         company_code = str(row['Company_Code'])
         
-        # Remove apostrophes and check for partial matches
-        company_name_clean = company_name.replace("'s", "").replace("'", "")
-        text_clean = text.replace("'s", "").replace("'", "")
+        name_variations = generate_name_variations(company_name)
         
-        # Only add each company once
-        if (company_name_clean in text_clean or company_code in text) and company_code not in seen_companies:
-            seen_companies.add(company_code)
-            mentioned_companies.append({
-                'name': row['Company_Name'],
-                'code': company_code,
-                'symbol': f"{company_code}.SR"
-            })
+        for variation in name_variations:
+            variation_clean = variation.lower().replace("'s", "").replace("'", "")
+            if (re.search(r'\b' + re.escape(variation_clean) + r'\b', text) or 
+                re.search(r'\b' + re.escape(company_code) + r'\b', text)) and company_code not in seen_companies:
+                seen_companies.add(company_code)
+                mentioned_companies.append({
+                    'name': row['Company_Name'],
+                    'code': company_code,
+                    'symbol': f"{company_code}.SA"
+                })
+                break  # Stop checking variations once we find a match
     
     return mentioned_companies
 
@@ -122,6 +140,10 @@ def fetch_news(published_after, limit=3):
 def get_stock_data(symbol, period='1mo'):
     """Fetch stock data and calculate technical indicators"""
     try:
+        # For Saudi stocks, use the format XXXX.SA
+        if symbol.endswith('.SR'):
+            symbol = symbol[:-3] + '.SA'
+        
         stock = yf.Ticker(symbol)
         df = stock.history(period=period)
         
@@ -220,46 +242,31 @@ def main():
     companies_df = load_company_data(uploaded_file)
 
     if companies_df.empty:
-        st.error("Failed to load company data. Please check your internet connection or upload a valid CSV file.")
+        st.error("Failed to load company data. Please check your CSV file or internet connection.")
         return
 
-    if st.button("Fetch News", use_container_width=True):
-        with st.spinner('Fetching and analyzing news...'):
-            news_data = fetch_news(published_after, limit=article_limit)
+    # Fetch and display news
+    news_articles = fetch_news(published_after, article_limit)
 
-            if not news_data:
-                st.warning("No news articles found for the selected time period.")
-                st.info("Try increasing the number of days in the sidebar to find more articles.")
-                return
+    for idx, article in enumerate(news_articles, 1):
+        st.subheader(f"Article {idx}: {article['title']}")
+        st.write(f"Published: {article['published_at']}")
+        st.write(f"Source: {article['source']}")
 
-            for idx, article in enumerate(news_data, 1):
-                st.subheader(f"Article {idx}: {article['title']}")
-                st.write(f"Published: {article['published_at']}")
-                st.write(f"Source: {article['source']}")
-                
-                # Analyze sentiment
-                sentiment, confidence = analyze_sentiment(article['description'])
-                st.write(f"Sentiment: {sentiment} (Confidence: {confidence:.2f}%)")
-                
-                # Find mentioned companies
-                mentioned_companies = find_companies_in_text(article['title'] + ' ' + article['description'], companies_df)
-                if mentioned_companies:
-                    st.write("Mentioned Companies:")
-                    for company in mentioned_companies:
-                        st.write(f"- {company['name']} ({company['code']})")
-                    
-                    st.write("Company Analysis:")
-                    for company_idx, company in enumerate(mentioned_companies):
-                        with st.expander(f"Analysis for {company['name']} ({company['code']})"):
-                            analyze_company(company, f"{idx}_{company_idx}")
-                else:
-                    st.write("No specific companies detected in this article.")
-                    st.write("Note: This could be due to limitations in the company detection algorithm.")
-                
-                st.write("Article Description:")
-                st.write(article['description'])
-                st.write(f"[Read full article]({article['url']})")
-                st.markdown("---")  # Add a horizontal line between articles
+        # Analyze sentiment
+        sentiment, confidence = analyze_sentiment(article['title'] + " " + article['description'])
+        st.write(f"Sentiment: {sentiment} (Confidence: {confidence:.2f}%)")
 
-if __name__ == "__main__":
-    main()
+        # Find mentioned companies
+        mentioned_companies = find_companies_in_text(article['title'] + " " + article['description'], companies_df)
+        if mentioned_companies:
+            st.write("Mentioned Companies:")
+            for company in mentioned_companies:
+                st.write(f"{company['name']} ({company['code']})")
+        else:
+            st.write("No companies mentioned.")
+
+        st.write("Article Description:")
+        st.write(article['description'])
+        
+        if st.button(f"Read full article {idx}", key=f"read_full_{idx}"):
