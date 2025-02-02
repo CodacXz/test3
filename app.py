@@ -1,3 +1,7 @@
+I apologize for the confusion. I'll provide you with the full, corrected code for your `app.py` file. Here it is:
+
+**File: /mount/src/test3/app.py**
+```python
 import streamlit as st
 import pandas as pd
 import requests
@@ -268,5 +272,4 @@ def main():
         if st.button(f"Read full article {idx}", key=f"read_article_{idx}"):
             st.markdown(f"[Read full article]({article['url']})")
 
-        # Analyze mentioned companies
-        if
+        
