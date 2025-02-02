@@ -1,3 +1,7 @@
+Certainly! Here's the full, corrected code for your `app.py` file:
+
+**File: c:\Users\DELL\Downloads\Test-main (2)\Test-main\app.py**
+```python
 import streamlit as st
 import pandas as pd
 import requests
@@ -265,4 +269,5 @@ def main():
         st.write("Article Description:")
         st.write(article['description'])
         
-        if st.button(f"Read full article {idx}", key=f"
+        if st.button(f"Read full article {idx}", key=f"read_article_{idx}"):
+            st.markdown(f"[Read full article]({article['
