@@ -1,6 +1,3 @@
-Certainly! Here's the full, corrected code for your `app.py` file:
-
-**File: c:\Users\DELL\Downloads\Test-main (2)\Test-main\app.py**
 ```python
 import streamlit as st
 import pandas as pd
