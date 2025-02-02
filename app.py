@@ -167,7 +167,7 @@ def analyze_company(company, idx):
             fig.add_trace(go.Scatter(x=df.index, y=df['BB_upper'], name='BB Upper'))
             fig.add_trace(go.Scatter(x=df.index, y=df['BB_lower'], name='BB Lower'))
             fig.update_layout(title=f"{company.get('name')} Stock Price", xaxis_title="Date", yaxis_title="Price")
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, use_container_width=True, key=f"price_chart_{idx}")
             
             # Display technical indicators
             col1, col2 = st.columns(2)
@@ -176,7 +176,7 @@ def analyze_company(company, idx):
                 fig_macd = go.Figure()
                 fig_macd.add_trace(go.Scatter(x=df.index, y=df['MACD'], name='MACD'))
                 fig_macd.add_trace(go.Scatter(x=df.index, y=df['MACD_Signal'], name='Signal'))
-                st.plotly_chart(fig_macd, use_container_width=True)
+                st.plotly_chart(fig_macd, use_container_width=True, key=f"macd_chart_{idx}")
             
             with col2:
                 st.subheader("RSI")
@@ -184,7 +184,7 @@ def analyze_company(company, idx):
                 fig_rsi.add_trace(go.Scatter(x=df.index, y=df['RSI'], name='RSI'))
                 fig_rsi.add_hline(y=70, line_dash="dash", line_color="red")
                 fig_rsi.add_hline(y=30, line_dash="dash", line_color="green")
-                st.plotly_chart(fig_rsi, use_container_width=True)
+                st.plotly_chart(fig_rsi, use_container_width=True, key=f"rsi_chart_{idx}")
             
             # Display summary statistics
             st.subheader("Summary Statistics")
@@ -231,27 +231,30 @@ def main():
                 return
 
             for idx, article in enumerate(news_data, 1):
-                st.subheader(f"Article {idx}: {article['title']}")
-                st.write(f"Published: {article['published_at']}")
-                st.write(f"Source: {article['source']}")
-                
-                # Analyze sentiment
-                sentiment, confidence = analyze_sentiment(article['description'])
-                st.write(f"Sentiment: {sentiment} (Confidence: {confidence:.2f}%)")
-                
-                # Find mentioned companies
-                mentioned_companies = find_companies_in_text(article['description'], companies_df)
-                if mentioned_companies:
-                    st.write("Mentioned Companies:")
-                    for company in mentioned_companies:
-                        st.write(f"- {company['name']} ({company['code']})")
-                        analyze_company(company, idx)
-                else:
-                    st.write("No specific companies mentioned.")
-                
-                st.write(article['description'])
-                st.write(f"[Read full article]({article['url']})")
-                st.markdown("---")
+                with st.expander(f"Article {idx}: {article['title']}"):
+                    st.write(f"Published: {article['published_at']}")
+                    st.write(f"Source: {article['source']}")
+                    
+                    # Analyze sentiment
+                    sentiment, confidence = analyze_sentiment(article['description'])
+                    st.write(f"Sentiment: {sentiment} (Confidence: {confidence:.2f}%)")
+                    
+                    # Find mentioned companies
+                    mentioned_companies = find_companies_in_text(article['description'], companies_df)
+                    if mentioned_companies:
+                        st.write("Mentioned Companies:")
+                        for company in mentioned_companies:
+                            st.write(f"- {company['name']} ({company['code']})")
+                        
+                        st.write("Company Analysis:")
+                        for company_idx, company in enumerate(mentioned_companies):
+                            analyze_company(company, f"{idx}_{company_idx}")
+                    else:
+                        st.write("No specific companies mentioned in this article.")
+                    
+                    st.write("Article Description:")
+                    st.write(article['description'])
+                    st.write(f"[Read full article]({article['url']})")
 
 if __name__ == "__main__":
     main()
